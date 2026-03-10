@@ -38,7 +38,7 @@ source .env
 set +a
 
 # Generate base64 auth string for GHCR
-export GHCR_AUTH_BASE64=$(echo -n "${ARGOCD_MACHINE_USER}:${GITHUB_TOKEN}" | base64)
+export GHCR_AUTH_BASE64=$(echo -n "${ARGOCD_MACHINE_USER}:${GITHUB_TOKEN}" | base64 | tr -d '\n')
 
 # ============================================================================
 # Generate YAML files from templates
