@@ -140,14 +140,6 @@ fi
 # Check if ghcr-credentials-secret.yaml exists
 if [ ! -f "ghcr-credentials-secret.yaml" ]; then
   echo "❌ Error: ghcr-credentials-secret.yaml not found; therefore, ghcr-credentials secret will not be set."
-#   echo "Please ensure ghcr-credentials-secret.yaml exists and has the correct secret for ${GITHUB_ORG}"
-#   echo ""
-#   read -p "Continue anyway (for example, in the case of ghcr-credentials having been previously applied on this K8s cluster)? (y/n) " -n 1 -r
-#   echo
-#   if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-#     echo "Aborted"
-#     exit 1
-#   fi
 fi
 
 # Check if argocd-repository-secret.yaml exists
@@ -164,27 +156,6 @@ if [ "$ENABLE_NOTIFICATIONS" = true ]; then
     exit 1
   fi
 fi
-
-# Warning about secrets
-# echo ""
-# if [ "$ENABLE_NOTIFICATIONS" = true ]; then
-#   echo "⚠️  WARNING: You are about to apply secrets to your cluster for ${GITHUB_ORG} organization and ${APP_NAME} ${ENVIRONMENT}"
-#   echo ""
-#   echo "Make sure ghcr-credentials-secret.yaml contains the correct secrets for ${GITHUB_ORG}"
-#   echo "Make sure argocd-repository-secret.yaml and notifications-secret.yaml contain the correct secrets for ${APP_NAME}"
-# else
-#   echo "⚠️  WARNING: You are about to apply secrets to your cluster for ${GITHUB_ORG} organization and ${APP_NAME} ${ENVIRONMENT}"
-#   echo ""
-#   echo "Make sure ghcr-credentials-secret.yaml contains the correct secrets for ${GITHUB_ORG}"
-#   echo "Make sure argocd-repository-secret.yaml contains the correct secrets for ${APP_NAME}"
-# fi
-# echo ""
-# read -p "Continue? (y/n) " -n 1 -r
-# echo
-# if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-#   echo "Aborted"
-#   exit 1
-# fi
 
 # Apply secrets
 if [ -f "ghcr-credentials-secret.yaml" ]; then
@@ -440,10 +411,66 @@ if [ ! -f "${ARGOCD_APP_FILE}" ]; then
   exit 1
 fi
 
-# Commit argocd app to git repo
-git add ${ARGOCD_APP_FILE}
-git commit -m "initial commit"
-git push origin main
+# Commit and push Argo CD app manifest (with graceful handling if git is missing or not configured)
+GIT_SKIPPED=false
+if ! command -v git &> /dev/null; then
+  echo "Warning: git is not installed or not on your PATH. Skipping git commit/push." >&2
+  echo "  Install git and ensure it is on your PATH, then run these commands manually from this directory:" >&2
+  echo "    git add ${ARGOCD_APP_FILE}" >&2
+  echo "    git commit -m \"chore(argocd): bootstrap ${APP_NAME}-${ENVIRONMENT} application\"" >&2
+  echo "    git push origin main" >&2
+  GIT_SKIPPED=true
+else
+  git_name=$(git config user.name 2>/dev/null || true)
+  git_email=$(git config user.email 2>/dev/null || true)
+  if [ -z "$git_name" ] || [ -z "$git_email" ]; then
+    echo "Warning: git user.name and/or user.email are not set. Skipping git commit/push." >&2
+    echo "  Set your git identity, then run the commit/push commands manually:" >&2
+    echo "    git config user.name 'Your Name'" >&2
+    echo "    git config user.email 'you@example.com'" >&2
+    echo "    # (use --global to set for all repos)" >&2
+    echo "    git add ${ARGOCD_APP_FILE}" >&2
+    echo "    git commit -m \"chore(argocd): bootstrap ${APP_NAME}-${ENVIRONMENT} application\"" >&2
+    echo "    git push origin main" >&2
+    GIT_SKIPPED=true
+  fi
+fi
+
+if [ "$GIT_SKIPPED" = false ]; then
+  if ! git add "${ARGOCD_APP_FILE}" 2>/dev/null; then
+    echo "Warning: git add failed. Run manually from this directory:" >&2
+    echo "  git add ${ARGOCD_APP_FILE}" >&2
+    echo "  git commit -m \"chore(argocd): bootstrap ${APP_NAME}-${ENVIRONMENT} application\"" >&2
+    echo "  git push origin main" >&2
+  else
+    if git diff --staged --quiet 2>/dev/null; then
+      echo "Info: No changes to commit; Argo CD app manifest already up to date."
+    else
+      commit_out=$(git commit -m "chore(argocd): bootstrap ${APP_NAME}-${ENVIRONMENT} application" 2>&1) || commit_rc=$?
+      if [ "${commit_rc:-0}" -ne 0 ]; then
+        if echo "$commit_out" | grep -q "nothing to commit\|working tree clean"; then
+          echo "Info: No changes to commit; Argo CD app manifest already up to date."
+        else
+          echo "Warning: git commit failed:" >&2
+          echo "$commit_out" >&2
+          echo "  Remediate the issue above, then run manually from this directory:" >&2
+          echo "  git add ${ARGOCD_APP_FILE}" >&2
+          echo "  git commit -m \"chore(argocd): bootstrap ${APP_NAME}-${ENVIRONMENT} application\"" >&2
+          echo "  git push origin main" >&2
+          exit 1
+        fi
+      fi
+    fi
+    current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+    if ! git push origin "${current_branch}" 2>&1; then
+      echo "Warning: git push failed. Ensure your git identity has write access to the remote (check SSH keys or HTTPS credentials)." >&2
+      echo "  Then run manually from this directory:" >&2
+      echo "    git push origin ${current_branch}" >&2
+      exit 1
+    fi
+    echo "Info: Pushed Argo CD app manifest to origin/${current_branch}."
+  fi
+fi
 
 # Apply app-of-apps
 echo "📝 Applying app-of-apps for ${ENVIRONMENT}..."
@@ -459,10 +486,6 @@ else
 fi
 echo "=============================================="
 echo ""
-if [ "$ENABLE_NOTIFICATIONS" = true ]; then
-  echo "!!!REMEMBER TO DELETE YOUR SECRETS YAMLS -- DO *NOT* COMMIT THEM TO GITHUB!!!"
-else
-  echo "!!!REMEMBER TO DELETE YOUR SECRETS YAMLS -- DO *NOT* COMMIT THEM TO GITHUB!!!"
-fi
+echo "!!!REMEMBER TO DELETE YOUR SECRETS YAMLS -- DO *NOT* COMMIT THEM TO GITHUB!!!"
 
 echo ""
