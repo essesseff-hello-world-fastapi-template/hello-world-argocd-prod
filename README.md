@@ -124,7 +124,7 @@ hello-world-argocd-prod/
 
 6. **Access the Deployed Application**:
    ```bash
-   kubectl port-forward service/hello-world-prod 8081:80 -n essesseff-hello-world-fastapi-template
+   kubectl port-forward service/hello-world-prod 8081:80 -n {{K8S_NAMESPACE}}
    # Access: http://localhost:8081
    ```
 ### How to Offboard hello-world-prod Deployment from Argo CD and K8s
