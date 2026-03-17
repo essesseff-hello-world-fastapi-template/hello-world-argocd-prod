@@ -19,7 +19,7 @@ spec:
         - values.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: ${GITHUB_ORG}
+    namespace: {{K8S_NAMESPACE}}
   syncPolicy:
     automated:
       prune: true
